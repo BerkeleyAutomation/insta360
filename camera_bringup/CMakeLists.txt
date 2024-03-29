@@ -10,15 +10,62 @@ find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_python REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclpy REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(lifelong_msgs REQUIRED)
-find_package(geometry_msgs REQUIRED)
+#find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(image_transport REQUIRED)
+find_package(cv_bridge REQUIRED)
+#find_package(message_filters REQUIRED)
+find_package(OpenCV REQUIRED)
 
+find_package(OpenCV REQUIRED COMPONENTS highgui imgcodecs imgproc videoio)
+find_package(pluginlib REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
 
 include_directories(include)
+
+include_directories(include ${OpenCV_INCLUDE_DIRS})
+
+add_executable(uncompressed_realsense_image_transport_node src/uncompressed_realsense_image_transport_node.cpp)
+target_link_libraries(uncompressed_realsense_image_transport_node
+  cv_bridge::cv_bridge
+  image_transport::image_transport
+  opencv_highgui
+  rclcpp::rclcpp
+)
+
+add_executable(uncompressed_synced_image_transport_node src/uncompressed_synced_image_transport_node.cpp)
+target_link_libraries(uncompressed_synced_image_transport_node
+  cv_bridge::cv_bridge
+  image_transport::image_transport
+  opencv_highgui
+  rclcpp::rclcpp
+)
+
+add_executable(uncompressed_zed_realsense_image_transport_node src/uncompressed_zed_realsense_image_transport_node.cpp)
+target_link_libraries(uncompressed_zed_realsense_image_transport_node
+  cv_bridge::cv_bridge
+  image_transport::image_transport
+  opencv_highgui
+  rclcpp::rclcpp
+)
+
+add_executable(manual_splat_collection_node src/manual_splat_collection_node.cpp)
+target_link_libraries(manual_splat_collection_node
+  cv_bridge::cv_bridge
+  image_transport::image_transport
+  opencv_highgui
+  rclcpp::rclcpp
+)
+
+install(
+  TARGETS uncompressed_zed_realsense_image_transport_node uncompressed_synced_image_transport_node manual_splat_collection_node uncompressed_realsense_image_transport_node
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
 
 # Install Python modules
 ament_python_install_package(${PROJECT_NAME})
@@ -30,6 +77,36 @@ install(PROGRAMS
 
 install(PROGRAMS
   scripts/collect_images_for_nerf.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(PROGRAMS
+  scripts/manual_splat_collection_node.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(PROGRAMS
+  scripts/manual_realsense_splat_collection_node.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(PROGRAMS
+  scripts/img_depth_img_folder_to_rostopic.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(PROGRAMS
+  scripts/folder_image_publisher.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(PROGRAMS
+  scripts/manual_left_zed_realsense_splat_collection_node.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(PROGRAMS
+  scripts/enter_key_publisher_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -95,6 +172,11 @@ install(PROGRAMS
 
 install(PROGRAMS
   scripts/calibrate_extrinsics_node.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(PROGRAMS
+  scripts/uncompressed_synced_image_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

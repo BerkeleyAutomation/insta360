@@ -10,3 +10,8 @@ droid_slam_ros/data/output_images/*
 droid_slam_ros/dist/*
 droid_slam_ros/datasets
 droid_slam_ros/data/*
+zed_depth_model/*
+tri_model_ros_wrapper/*
+droid_slam_ros/thirdparty/tartanair_tools/evaluation/__pycache__/*
+droid_slam_ros/*.png
+droid_slam_ros/droid_slam/data_readers/__pycache__/*

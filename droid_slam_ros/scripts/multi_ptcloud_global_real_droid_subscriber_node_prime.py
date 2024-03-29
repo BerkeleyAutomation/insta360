@@ -22,8 +22,6 @@ import message_filters
 from tf2_ros import TransformBroadcaster
 import sys
 file_location = os.path.dirname(os.path.realpath(__file__))
-import pdb
-pdb.set_trace()
 sys.path.append(file_location+'/../../share/droid_slam_ros/droid_slam')
 from droid import Droid
 import droid_backends
@@ -62,26 +60,28 @@ class MinimalSubscriber(Node):
             "k3": 1.32861466e-04,
             "camera_model": "OPENCV",
         }
-        self.rgb_sub = message_filters.Subscriber(self, CompressedImage, '/ros2_camera/color/image_raw/compressed')
-        self.left_sub = message_filters.Subscriber(self,CompressedImage,'/camLeft/image_raw/compressed_synced')
-        self.right_sub = message_filters.Subscriber(self,CompressedImage,'/camRight/image_raw/compressed_synced')
+        self.first_image_ = True
+        # self.rgb_sub = message_filters.Subscriber(self, CompressedImage, '/repub_compressed_image_synced')
+        self.rgb_sub = message_filters.Subscriber(self, CompressedImage, '/repub_compressed_image_synced')
         self.cam_info_sub = self.create_subscription(CameraInfo,'/ros2_camera/color/camera_info',self.cam_intr_cb,1)
-        self.depth_sub = message_filters.Subscriber(self,Image,'/repub_depth_raw')
+        self.left_sub = message_filters.Subscriber(self,CompressedImage,'/repub_left_image_synced')
+        self.right_sub = message_filters.Subscriber(self,CompressedImage,'/repub_right_image_synced')
+        self.depth_sub = message_filters.Subscriber(self,Image,'/repub_depth_image_synced')
         self.done_sub_ = self.create_subscription(Bool,'/loop_done',self.doneCallback,10)
         self.realsense_publisher = self.create_publisher(ImagePoses, '/sim_realsense',1)
 
 
-        r_ang = -70.7099538 * np.pi / 180
+        r_ang = -90 * np.pi / 180
         l_ang = -r_ang
 
         self.droid_nerf_frame_to_left_nerf_frame_ = np.array([[np.cos(l_ang), 0, np.sin(l_ang), -0.050404],
                                     [0, 1, 0, 0.01016],
-                                    [-np.sin(l_ang), 0, np.cos(l_ang), 0.043395],
+                                    [-np.sin(l_ang), 0, np.cos(l_ang), 0.043395 + 0.06],
                                     [0, 0, 0, 1]])
                                     
         self.droid_nerf_frame_to_right_nerf_frame_ = np.array([[np.cos(r_ang), 0, np.sin(r_ang), 0.027404],
                                     [0, 1, 0, 0.01016],
-                                    [-np.sin(r_ang), 0, np.cos(r_ang), 0.043395],
+                                    [-np.sin(r_ang), 0, np.cos(r_ang), 0.043395 - 0.06],
                                     [0, 0, 0, 1]])
         # self.droid_nerf_frame_to_left_nerf_frame_ = np.array([[0.00, 0.000 ,1.000 ,-0.055],
         #                                                             [0.000,  1.000 ,0.000 , 0.000],
@@ -91,6 +91,7 @@ class MinimalSubscriber(Node):
         #                                                             [0.000,  1.000 ,-0.000 , 0.000],
         #                                                             [1.000 , 0.0 , 0.0 ,0.041],
         #                                                             [0,0,0,1]])
+        self.i = 0
         self.tstamps = []
         self.tf_broadcaster = TransformBroadcaster(self)
         self.last_pose = None
@@ -98,6 +99,7 @@ class MinimalSubscriber(Node):
         self.iter_times = []
         self.image_counter = 0
         self.stride = 1
+        self.stored_camera_stream_ = []
         self.ts = message_filters.ApproximateTimeSynchronizer([self.rgb_sub, self.depth_sub,self.left_sub,self.right_sub], 1, 3.0)
         self.ts.registerCallback(self.image_callback_uncompressed)
         #self.ts = message_filters.ApproximateTimeSynchronizer([self.rgb_sub, self.depth_sub, self.cam_info_sub], 10, 0.2)
@@ -222,6 +224,7 @@ class MinimalSubscriber(Node):
                 ros_transform.transform.rotation.w = alt_quaternion[3]
                 self.tf_broadcaster.sendTransform(ros_transform)
             return
+        
         self.image_counter += 1
         pose = self.droid.video.poses[self.droid.video.counter.value-1].cpu().numpy()
         disp = self.droid.video.disps[self.droid.video.counter.value-1].cpu().numpy()
@@ -239,12 +242,23 @@ class MinimalSubscriber(Node):
             images = images.cpu()[:,[2,1,0],3::8,3::8].permute(0,2,3,1) / 255.0
             points = droid_backends.iproj(SE3(poses).inv().data, disps, self.droid.video.intrinsics[0]).cpu()
             i = len(dirty_index) - 1
-            pts = points[i]
-            clr = images[i]
-            pts_array = pts.float().flatten().tolist()
-            clr_array = clr.float().flatten().tolist()
+            filter_thresh = 0.005
+            thresh = filter_thresh * torch.ones_like(disps.mean(dim=[1,2]))
+    
+            count = droid_backends.depth_filter(
+                self.droid.video.poses, self.droid.video.disps, self.droid.video.intrinsics[0], dirty_index, thresh)
+
+            count = count.cpu()
+            disps = disps.cpu()
+            masks = ((count >= 2) & (disps > .5*disps.mean(dim=[1,2], keepdim=True)))
+            mask = masks[i].reshape(-1)
+            pts = points[i].reshape(-1, 3)[mask].cpu().numpy()
+            clr = images[i].reshape(-1, 3)[mask].cpu().numpy()
+            pts_array = pts.flatten().tolist()
+            clr_array = clr.flatten().tolist()
             image_poses.points = pts_array
             image_poses.colors = clr_array
+            image_poses.mask_idxs = torch.where(mask)[0].cpu().numpy().flatten().tolist()
             print("Saved points")
         self.last_pose = pose
         ros_transform = TransformStamped()
@@ -322,13 +336,27 @@ class MinimalSubscriber(Node):
         left_orient = R.from_matrix(left_posemat[:3,:3]).as_quat()
         right_orient = R.from_matrix(right_posemat[:3,:3]).as_quat()
 
-        if not (-0.001 < pose[0] < 0.001 and -0.001 < pose[1] < 0.001 and -0.001 < pose[2] < 0.001): # if pose is not [0,0,0] then publish
+        if(self.image_counter % 166 == 0):
+            new_poses = self.droid.globalBundleAdjust(self.stored_camera_stream_)
+            new_poses_list = new_poses.flatten().tolist()
+            #new_poses_reshaped = np.array(new_poses_list).reshape(-1,7)
+            #if(np.array_equal(new_poses,new_poses_reshaped)):
+            #    print("POGGING")
+            #else:
+            #    print("TOUGH")
+            image_poses.prev_poses = new_poses_list
+
+        if (self.first_image_  or (not (-0.001 < pose[0] < 0.001 and -0.001 < pose[1] < 0.001 and -0.001 < pose[2] < 0.001))): # if pose is not [0,0,0] then publish
             image_pose_msg.pose = Pose(position=Point(x=pose[0],y=pose[1],z=pose[2]),orientation=Quaternion(x=orient[0],y=orient[1],z=orient[2],w=orient[3]))  # Replace with your Pose message
+            self.first_image_ = False
             left_msg.pose = Pose(position=Point(x=left_pose[0],y=left_pose[1],z=left_pose[2]),orientation=Quaternion(x=left_orient[0],y=left_orient[1],z=left_orient[2],w=left_orient[3]))
             right_msg.pose = Pose(position=Point(x=right_pose[0],y=right_pose[1],z=right_pose[2]),orientation=Quaternion(x=right_orient[0],y=right_orient[1],z=right_orient[2],w=right_orient[3]))
             
             image_poses.image_poses = [image_pose_msg,left_msg,right_msg]
             self.publisher.publish(image_poses)
+            self.stored_camera_stream_.append([self.t_,image,intrinsics])
+            self.i += 1
+        
         self.curr_time = time.time()
         self.prev_time = self.curr_time
 
@@ -430,15 +458,6 @@ class MinimalSubscriber(Node):
         realsense_sim_msg = ImagePose()
         # cv_image = self.bridge.compressed_imgmsg_to_cv2(img_msg, desired_encoding='bgr8')  # Convert ROS Image message to OpenCV image
         # cv_img_msg = self.bridge.cv2_to_imgmsg(cv_image, encoding="bgr8")
-        right_image = self.cv_bridge_.compressed_imgmsg_to_cv2(right_msg)  # Convert ROS Image message to OpenCV image
-        right_image = cv2.resize(right_image, (848,480))
-        right_msg = self.cv_bridge_.cv2_to_compressed_imgmsg(right_image)
-        
-        left_image = self.cv_bridge_.compressed_imgmsg_to_cv2(left_msg)  # Convert ROS Image message to OpenCV image
-        left_image = cv2.resize(left_image, (848,480))
-        left_msg = self.cv_bridge_.cv2_to_compressed_imgmsg(left_image)
-        
-
 
         realsense_sim_msg.img = img_msg
         realsense_sim_msg.depth = depth_msg

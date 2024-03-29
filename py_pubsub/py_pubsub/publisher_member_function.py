@@ -16,7 +16,10 @@ import rclpy
 from rclpy.node import Node
 
 from std_msgs.msg import String
-from sensor_msgs.msg import Image, CameraInfo
+from sensor_msgs.msg import Image, CameraInfo, CompressedImage
+from lifelong_msgs.msg import ImagePose, ImagePoses
+from scipy.spatial.transform import Rotation as R
+from .read_write_colmap import read_model
 
 import os
 import glob 
@@ -27,6 +30,7 @@ import torch
 import torch.nn.functional as F
 from tqdm import tqdm
 import time
+import json    
 
 
 class MinimalPublisher(Node):
@@ -38,19 +42,30 @@ class MinimalPublisher(Node):
         self.rgb_publisher = self.create_publisher(Image, '/camera/image_raw', 10)
         self.camera_info_publisher = self.create_publisher(CameraInfo, '/ros2_camera/color/camera_info', 10)
         self.loop_done_publisher = self.create_publisher(String, '/loop_done', 10)
+        self.imagepose_publisher = self.create_publisher(ImagePoses, '/camera/color/imagepose', 10)
         timer_period = 2 # seconds
-        #self.timer = self.create_timer(timer_period, self.timer_callback)
+        self.timer = self.create_timer(timer_period, self.timer_callback)
         self.i = 0
+
+        self.imagepose_subscriber = self.create_subscription(ImagePoses, '/camera/color/imagepose', self.imagepose_callback, 100)
         
-        which_dataset = 'large_loop_1'
-        self.depth_path = f'./src/droid_slam_ros/datasets/ETH3D-SLAM/training/{which_dataset}/depth'
-        self.depth_filenames = sorted(os.listdir(self.depth_path))
-        self.rgb_path = f'./src/droid_slam_ros/datasets/ETH3D-SLAM/training/{which_dataset}/rgb'
-        self.rgb_filenames = sorted(os.listdir(self.rgb_path))
+        # which_dataset = 'large_loop_1'
+        # self.depth_path = f'./src/droid_slam_ros/datasets/ETH3D-SLAM/training/{which_dataset}/depth'
+        # self.depth_filenames = sorted(os.listdir(self.depth_path))
+        # self.rgb_path = f'./src/droid_slam_ros/datasets/ETH3D-SLAM/training/{which_dataset}/rgb'
+        # self.rgb_filenames = sorted(os.listdir(self.rgb_path))
+
+        self.colmap_path = '/home/kushtimusprime/legs_ws/manual_realsense_only_colmap/'
+        
         self.bridge = CvBridge()
-        self.timer_callback()
-        import pdb
-        pdb.set_trace()
+        # self.timer_callback()
+        # import pdb
+        # pdb.set_trace()
+
+    def imagepose_callback(self, msg):
+        img = msg.img
+        pose = msg.pose
+        print(img.shape, pose)
 
     def image_stream(self, datapath, use_depth=False, stride=1):
         """ image generator """
@@ -87,6 +102,47 @@ class MinimalPublisher(Node):
                 # yield t, image[None], intrinsics
                 yield t, image, intrinsics
 
+    def imagepose_stream(self, datapath):
+        data = json.load(open(datapath + 'transforms.json'))
+        frames = data['frames']
+
+        cameras, _, _ = read_model(path=datapath + '/colmap/sparse/0', ext='.bin')
+        cam = cameras[1]
+        # Parameter list is expected in the following order: fx, fy, cx, cy, k1, k2, p1, p2
+        fx, fy, cx, cy, k1, k2, _, _ = cam.params
+
+        for frame in frames:
+            img_id = frame['colmap_im_id']
+            transform_matrix = np.array(frame['transform_matrix'])
+            image = cv2.imread(datapath + f'/images/frame_00{img_id:03}.png')
+            depth_image = np.load(datapath + f'/depth_images/image000{(img_id-1):03}.npy')
+            print(f'/images/frame_00{img_id:03}.png', f'/depth_images/image000{(img_id-1):03}.npy')
+
+            imagepose = ImagePose()
+            imagepose.pose.position.x, imagepose.pose.position.y, imagepose.pose.position.z = transform_matrix[:3, 3]
+            imagepose.pose.orientation.x, imagepose.pose.orientation.y, imagepose.pose.orientation.z, imagepose.pose.orientation.w = R.from_matrix(transform_matrix[:3,:3]).as_quat()
+            imagepose.img = self.bridge.cv2_to_compressed_imgmsg(image)
+            imagepose.depth = self.bridge.cv2_to_imgmsg(depth_image)
+            imagepose.w = cam.width
+            imagepose.h = cam.height
+            # imagepose.fl_x = fx
+            # imagepose.fl_y = fy
+            # imagepose.cx = cx
+            # imagepose.cy = cy
+            # imagepose.k1 = k1 #-0.0566311
+            # imagepose.k2 = k2 #0.0635934
+            # imagepose.k3 = 1.0 #-0.0204851
+            imagepose.fl_x = 428.2534
+            imagepose.fl_y = 427.8413
+            imagepose.cx = 422.3757
+            imagepose.cy = 236.3165
+            imagepose.k1 = -0.0566311
+            imagepose.k2 = 0.0635934
+            imagepose.k3 = -0.0204851
+            imagepose.camera_model = ''
+            yield imagepose
+            time.sleep(0.1)
+
 
     def timer_callback(self):
         # depth_img = cv2.imread(f'{self.depth_path}/{self.depth_filenames[self.i]}')     
@@ -114,38 +170,50 @@ class MinimalPublisher(Node):
 
         ################################################################################
 
-        datapath = './src/droid_slam_ros/datasets/ETH3D-SLAM/training/sfm_house_loop'
-        stride = 1
+        # datapath = './src/droid_slam_ros/datasets/ETH3D-SLAM/training/sfm_house_loop'
+        # stride = 1
         
-        for (t, image, depth, intrinsics) in tqdm(self.image_stream(datapath, use_depth=True, stride=stride)):
-            intrinsics = torch.as_tensor([intrinsics[0], 0, intrinsics[2], 0, intrinsics[1], intrinsics[3], 0, 0, 1])
-            intrinsics = intrinsics.cpu().numpy().astype(np.float64)
-            # intrinsics = [intrinsics[0], 0, intrinsics[2], 0, intrinsics[1], intrinsics[3], 0, 0, 1]
+        # for (t, image, depth, intrinsics) in tqdm(self.image_stream(datapath, use_depth=True, stride=stride)):
+        #     intrinsics = torch.as_tensor([intrinsics[0], 0, intrinsics[2], 0, intrinsics[1], intrinsics[3], 0, 0, 1])
+        #     intrinsics = intrinsics.cpu().numpy().astype(np.float64)
+        #     # intrinsics = [intrinsics[0], 0, intrinsics[2], 0, intrinsics[1], intrinsics[3], 0, 0, 1]
 
-            depth_img_msg = self.bridge.cv2_to_imgmsg(np.array(depth, dtype=np.uint16), "16UC1")
-            depth_img_msg.header.stamp = self.get_clock().now().to_msg()
+        #     depth_img_msg = self.bridge.cv2_to_imgmsg(np.array(depth, dtype=np.uint16), "16UC1")
+        #     depth_img_msg.header.stamp = self.get_clock().now().to_msg()
 
-            rgb_img_msg = self.bridge.cv2_to_imgmsg(np.array(image), "bgr8")
-            rgb_img_msg.header.stamp = self.get_clock().now().to_msg()
+        #     rgb_img_msg = self.bridge.cv2_to_imgmsg(np.array(image), "bgr8")
+        #     rgb_img_msg.header.stamp = self.get_clock().now().to_msg()
 
-            cam_info_msg = CameraInfo()
-            cam_info_msg.header.frame_id = 'map_droid'
-            cam_info_msg.header.stamp = self.get_clock().now().to_msg()
-            cam_info_msg.distortion_model = 'plumb_bob'
-            cam_info_msg.k = intrinsics
-            cam_info_msg.d = np.array([0, 0, 0, 0, 0], dtype=np.float64).tolist()
-            cam_info_msg.height, cam_info_msg.width = image.shape[0], image.shape[1]
+        #     cam_info_msg = CameraInfo()
+        #     cam_info_msg.header.frame_id = 'map_droid'
+        #     cam_info_msg.header.stamp = self.get_clock().now().to_msg()
+        #     cam_info_msg.distortion_model = 'plumb_bob'
+        #     cam_info_msg.k = intrinsics
+        #     cam_info_msg.d = np.array([0, 0, 0, 0, 0], dtype=np.float64).tolist()
+        #     cam_info_msg.height, cam_info_msg.width = image.shape[0], image.shape[1]
 
-            self.depth_publisher.publish(depth_img_msg)
-            self.rgb_publisher.publish(rgb_img_msg)
-            self.camera_info_publisher.publish(cam_info_msg)
-            time.sleep(0.1)
+        #     self.depth_publisher.publish(depth_img_msg)
+        #     self.rgb_publisher.publish(rgb_img_msg)
+        #     self.camera_info_publisher.publish(cam_info_msg)
+        #     time.sleep(0.1)
             
 
-        msg = String()
-        msg.data = 'done'
-        self.loop_done_publisher.publish(msg)
-        self.get_logger().info('loop done')
+        # msg = String()
+        # msg.data = 'done'
+        # self.loop_done_publisher.publish(msg)
+        # self.get_logger().info('loop done')
+
+        #######################################################################################
+        # datapath = '/home/kushtimusprime/legs_ws/manual_realsense_only_colmap/'
+        # count = 0
+        # for imagepose in tqdm(self.imagepose_stream(datapath)):
+        #     msg = ImagePoses()
+        #     msg.image_poses = [imagepose]
+        #     # msg.header.stamp = self.get_clock().now().to_msg()
+        #     self.imagepose_publisher.publish(msg)
+        #     count += 1
+        #     print('published', count)
+        pass
         
 
 def main(args=None):

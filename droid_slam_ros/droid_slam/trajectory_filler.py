@@ -34,7 +34,6 @@ class PoseTrajectoryFiller:
 
     def __fill(self, tstamps, images, intrinsics):
         """ fill operator """
-
         tt = torch.as_tensor(tstamps, device="cuda")
         images = torch.stack(images, 0)
         intrinsics = torch.stack(intrinsics, 0)
@@ -86,7 +85,6 @@ class PoseTrajectoryFiller:
         tstamps = []
         images = []
         intrinsics = []
-        
         for (tstamp, image, intrinsic) in image_stream:
             tstamps.append(tstamp)
             images.append(image)

@@ -65,6 +65,7 @@ def update_visualization(server: viser.ViserServer, video, dirty_index: torch.Te
         ix = dirty_index[i].item()
 
         ### add camera actor ###
+        # camera_iter is whatever is the latest pred for the camera
         position = pose[:3, 3]
         camera_ix = server.add_camera_frustum(
             f'/camera_iter/camera_{ix}',
@@ -80,6 +81,7 @@ def update_visualization(server: viser.ViserServer, video, dirty_index: torch.Te
         clr = images[i].reshape(-1, 3)[mask].cpu().numpy()
         
         ## add point actor ###
+        # ... and pointcloud_iter is also the latest pred.
         point_actor_ix = server.add_point_cloud(
             f'/pointcloud_iter/pointcloud_{ix}',
             points=pts,
@@ -87,8 +89,16 @@ def update_visualization(server: viser.ViserServer, video, dirty_index: torch.Te
             point_size=0.01,
         )
         droid_visualization.points[ix] = point_actor_ix
+
+        # I would just make a viser button that says "export current camera poses"
+        # as well as the pointcloud. (and maybe the images are also cached somewhere...?)
+        # Then, you can put the poses into a transforms.json + images file, 
+        # Then this would probably be the easeiest way to verify
+        #   ... if the BA poses are actually good for splats,
+        #   ... and i guess you can also run colmap on the images and compare. but this is lower priority
         
         if ix not in VISER_ALREADY_ADDED_INDS:
+            # *_first means the first ever prediction for the camera.
             server.add_camera_frustum(
                 f'/camera_first/camera_{ix}',
                 fov=90,

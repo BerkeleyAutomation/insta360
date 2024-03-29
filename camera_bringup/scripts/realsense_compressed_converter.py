@@ -11,7 +11,7 @@ import time
 class ImageRepublisherNode(Node):
     def __init__(self):
         super().__init__('image_republisher')
-        self.color_sub = self.create_subscription(CompressedImage, '/ros2_camera/color/image_raw/compressed', self.color_callback, 1)
+        self.color_sub = self.create_subscription(CompressedImage, '/repub_compressed_image_synced', self.color_callback, 1)
         self.color_pub = self.create_publisher(Image, '/repub_image_raw', 1)
         self.cv_bridge = CvBridge()
 

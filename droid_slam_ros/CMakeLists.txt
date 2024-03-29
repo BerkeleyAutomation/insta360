@@ -23,6 +23,66 @@ install(PROGRAMS
 )
 
 install(PROGRAMS
+  scripts/space_bundle_adjust_node.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+install(PROGRAMS
+  scripts/view_multi_compressed_bag.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(PROGRAMS
+  scripts/multi_ptcloud_d455_2zed_global_real_droid_subscriber_node_prime.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(PROGRAMS
+  scripts/ptcloud_d435_global_real_droid_subscriber_node_prime.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(PROGRAMS
+  scripts/online_multi_ptcloud_d455_2zed_global_real_droid_subscriber_node_prime.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(PROGRAMS
+  scripts/multi_ptcloud_d455_zed_global_real_droid_subscriber_node_prime.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(PROGRAMS
+  scripts/convert_d455_corrected_zed_folder_to_bag.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(PROGRAMS
+  scripts/ptcloud_zed_global_real_droid_subscriber_node_prime.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(PROGRAMS
+  scripts/convert_d455_2_zed_folder_to_bag.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+
+install(PROGRAMS
+  scripts/convert_d455_folder_to_bag.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(PROGRAMS
+  scripts/convert_zed_folder_to_bag.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(PROGRAMS
+  scripts/view_compressed_bag.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(PROGRAMS
   scripts/dummy_droid_slam_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
@@ -38,12 +98,33 @@ install(PROGRAMS
 )
 
 install(PROGRAMS
+  scripts/multi_ptcloud_global_real_droid_subscriber_node_prime.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+
+install(PROGRAMS
+  scripts/ptcloud_d455_global_real_droid_subscriber_node_prime.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(PROGRAMS
+  scripts/karim_ptcloud_real_droid_subscriber_node_prime.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(PROGRAMS
   scripts/decode_image_poses_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
 install(PROGRAMS
   scripts/dummy_droid_subscriber_node_prime.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(PROGRAMS
+  scripts/ptcloud_real_droid_subscriber_node_prime.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

@@ -1,5 +1,9 @@
+import os
 import sys
-sys.path.append('droid_slam')
+file_location = os.path.dirname(os.path.realpath(__file__))
+droid_slam_location = file_location + '/../droid_slam'
+sys.path.append(droid_slam_location)
+
 from tqdm import tqdm
 import numpy as np
 import torch
@@ -12,7 +16,6 @@ import argparse
 import time
 import torch.nn.functional as F
 from droid import Droid
-
 import matplotlib.pyplot as plt
 
 
@@ -23,25 +26,29 @@ def show_image(image):
 
 def image_stream(datapath, use_depth=False, stride=1):
     """ image generator """
-
+    
     fx, fy, cx, cy = np.loadtxt(os.path.join(datapath, 'calibration.txt')).tolist()
     image_list = sorted(glob.glob(os.path.join(datapath, 'rgb', '*.png')))[::stride]
-    depth_list = sorted(glob.glob(os.path.join(datapath, 'depth', '*.png')))[::stride]
+    depth_list = sorted(glob.glob(os.path.join(datapath, 'depth', '*.npy')))[::stride]
     total_image_stream = []
     for t, (image_file, depth_file) in enumerate(zip(image_list, depth_list)):
         
         image = cv2.imread(image_file)
         # image = image[61:404, 102:661,:]
-        depth = cv2.imread(depth_file, cv2.IMREAD_ANYDEPTH) / 5000.0
-        # image = cv2.resize(image,(424,240))
         
+        depth = np.load(depth_file)
+        if(depth.dtype == np.uint16):
+            depth = depth / 1000.0
+        # image = cv2.resize(image,(424,240))
+        height, width, _ = image.shape
+        height = height - height % 32
+        width = width - width % 32
+        image = image[:height, :width, :3]
         h0, w0, _ = image.shape
-        h1 = int(h0 * np.sqrt((384 * 512) / (h0 * w0)))
-        w1 = int(w0 * np.sqrt((384 * 512) / (h0 * w0)))
-        h1 = int(h0 * ((384) / (h0)))
-        w1 = int(w0 * (( 512) / (w0)))
-        h1 = 480
-        w1 = 848
+        h1 = 456
+        w1 = 855
+        print("h1:", h1)
+        print("w1:", w1)
         image = cv2.resize(image, (w1, h1))
         image = image[:h1-h1%8, :w1-w1%8]
         image = torch.as_tensor(image).permute(2, 0, 1)
@@ -53,6 +60,10 @@ def image_stream(datapath, use_depth=False, stride=1):
         intrinsics = torch.as_tensor([fx, fy, cx, cy])
         intrinsics[0::2] *= (w1 / w0)
         intrinsics[1::2] *= (h1 / h0)
+        # cv2.imwrite('teehee.png',image.permute(1,2,0).cpu().detach().numpy())
+        # cv2.imwrite('teehee2.png',np.round(((depth.cpu().detach().numpy() - np.min(depth.cpu().detach().numpy())) / (np.max(depth.cpu().detach().numpy())- np.min(depth.cpu().detach().numpy()))) * 255).astype(np.uint8))
+        # import pdb
+        # pdb.set_trace()
         if use_depth:
             total_image_stream.append((t,image[None],depth,intrinsics))
             #yield t, image[None], depth, intrinsics
@@ -89,6 +100,7 @@ if __name__ == '__main__':
 
     print("Running evaluation on {}".format(args.datapath))
     print(args)
+
     # this can usually be set to 2-3 except for "camera_shake" scenes
     # set to 2 for test scenes
     stride = 1
@@ -96,51 +108,30 @@ if __name__ == '__main__':
     tstamps = []
     iter_times = []
     total_image_stream = image_stream(args.datapath,use_depth=True,stride=stride)
+    
     for (t, image, depth, intrinsics) in tqdm(total_image_stream):
         start_time = time.time()
         if not args.disable_vis:
             show_image(image[0])
-
         if t == 0:
             args.image_size = [image.shape[2], image.shape[3]]
             print("the image size is", args.image_size)
-            droid = Droid(args)
+            droid_obj = Droid(args)
         
-        droid.track(t, image, depth, intrinsics=intrinsics)
+        droid_obj.track(t, image, depth, intrinsics=intrinsics)
+        print("t: " + str(t))
         end_time = time.time()
+        # if(t == 80):
+        #     import pdb
+        #     pdb.set_trace()
+        #     print("Global bundle adjust")
+        #     droid.globalBundleAdjust()
+        #     import pdb
+        #     pdb.set_trace()
         iter_times.append(end_time - start_time)
     
-    traj_est = droid.terminate(image_stream(args.datapath, use_depth=False, stride=stride))
-    
-    ### run evaluation ###
+    traj_est = droid_obj.terminate(image_stream(args.datapath, use_depth=False, stride=stride))
 
-    print("#"*20 + " Results...")
-    
-    import evo
-    from evo.core.trajectory import PoseTrajectory3D
-    from evo.tools import file_interface
-    from evo.core import sync
-    import evo.main_ape as main_ape
-    from evo.core.metrics import PoseRelation
-
-    image_path = os.path.join(args.datapath, 'rgb')
-    images_list = sorted(glob.glob(os.path.join(image_path, '*.png')))[::stride]
-    tstamps = [float(x.split('/')[-1][:-4]) for x in images_list]
-
-    traj_est = PoseTrajectory3D(
-        positions_xyz=traj_est[:,:3],
-        orientations_quat_wxyz=traj_est[:,3:],
-        timestamps=np.array(tstamps))
-
-    gt_file = os.path.join(args.datapath, 'groundtruth.txt')
-    traj_ref = file_interface.read_tum_trajectory_file(gt_file)
-
-    traj_ref, traj_est = sync.associate_trajectories(traj_ref, traj_est)
-
-    result = main_ape.ape(traj_ref, traj_est, est_name='traj', 
-        pose_relation=PoseRelation.translation_part, align=True, correct_scale=False)
-
-    print(result.stats)
     iter_time_np = np.array(iter_times)
     print("Mean time: " + str(np.mean(iter_time_np)))
 

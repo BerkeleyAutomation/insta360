@@ -79,6 +79,15 @@ class Droid:
 
             # global bundle adjustment
             # self.backend()
+    
+    def globalBundleAdjust(self,stream=None):
+        torch.cuda.empty_cache()
+        self.backend(7)
+        torch.cuda.empty_cache()
+        self.backend(12)
+        camera_trajectory = self.traj_filler(stream)
+        return camera_trajectory.inv().data.cpu().numpy()
+
 
     def terminate(self, stream=None):
         """ terminate the visualization process, return poses [t, q] """
@@ -87,11 +96,11 @@ class Droid:
 
         torch.cuda.empty_cache()
         print("#" * 32)
-        # self.backend(7)
+        self.backend(7)
 
         torch.cuda.empty_cache()
         print("#" * 32)
-        # self.backend(12)
+        self.backend(12)
         camera_trajectory = self.traj_filler(stream)
         return camera_trajectory.inv().data.cpu().numpy()
 
